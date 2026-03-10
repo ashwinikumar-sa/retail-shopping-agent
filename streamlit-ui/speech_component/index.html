@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+  .container { text-align: center; padding: 8px 0; }
+  #micBtn {
+    width: 64px; height: 64px; border-radius: 50%; border: 2px solid #ccc;
+    font-size: 28px; cursor: pointer; background: #f8f9fa; transition: all 0.3s;
+    outline: none;
+  }
+  #micBtn:hover { background: #e9ecef; }
+  #micBtn.listening { background: #e63946; color: white; border-color: #e63946; animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(230,57,70,0.4); } 50% { box-shadow: 0 0 0 12px rgba(230,57,70,0); } }
+  #status { margin-top: 6px; font-size: 13px; color: #666; }
+  #transcript { margin-top: 8px; padding: 8px 12px; background: #f0f0f0; border-radius: 8px; font-size: 14px; min-height: 20px; display: none; text-align: left; }
+  .error { color: #e63946; }
+</style>
+</head>
+<body>
+<div class="container">
+  <button id="micBtn">🎤</button>
+  <div id="status">Click the mic and speak</div>
+  <div id="transcript"></div>
+</div>
+<script>
+// Streamlit component communication
+function sendToStreamlit(data) {
+  // Use Streamlit's component messaging API
+  window.parent.postMessage({
+    type: "streamlit:setComponentValue",
+    value: data
+  }, "*");
+}
+
+function setFrameHeight(h) {
+  window.parent.postMessage({
+    type: "streamlit:setFrameHeight",
+    height: h
+  }, "*");
+}
+
+// Signal that component is ready
+window.parent.postMessage({ type: "streamlit:componentReady", apiVersion: 1 }, "*");
+
+// Listen for render messages from Streamlit
+window.addEventListener("message", function(event) {
+  if (event.data.type === "streamlit:render") {
+    // Component has been rendered/re-rendered
+    setFrameHeight(document.body.scrollHeight);
+  }
+});
+
+// Set initial height
+setTimeout(function() { setFrameHeight(document.body.scrollHeight); }, 100);
+
+// Web Speech API setup
+const btn = document.getElementById('micBtn');
+const status = document.getElementById('status');
+const transcriptDiv = document.getElementById('transcript');
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+if (!SR) {
+  status.textContent = 'Web Speech API not supported. Use Chrome or Edge.';
+  status.className = 'error';
+  btn.disabled = true;
+} else {
+  let listening = false;
+  let recognition = new SR();
+  recognition.lang = 'en-US';
+  recognition.interimResults = true;
+  recognition.continuous = false;
+  recognition.maxAlternatives = 1;
+
+  btn.addEventListener('click', function() {
+    if (listening) {
+      recognition.stop();
+      return;
+    }
+    listening = true;
+    btn.className = 'listening';
+    status.textContent = '🔴 Listening... speak now';
+    status.className = '';
+    transcriptDiv.style.display = 'block';
+    transcriptDiv.textContent = '...';
+    recognition.start();
+  });
+
+  recognition.onresult = function(event) {
+    let interim = '';
+    let final_text = '';
+    for (let i = 0; i < event.results.length; i++) {
+      if (event.results[i].isFinal) {
+        final_text += event.results[i][0].transcript;
+      } else {
+        interim += event.results[i][0].transcript;
+      }
+    }
+    transcriptDiv.textContent = final_text || interim;
+
+    if (final_text) {
+      listening = false;
+      btn.className = '';
+      status.textContent = '✅ Got it! Sending to assistant...';
+      // Send the transcript back to Streamlit Python
+      sendToStreamlit(final_text.trim());
+    }
+  };
+
+  recognition.onerror = function(event) {
+    listening = false;
+    btn.className = '';
+    if (event.error === 'no-speech') {
+      status.textContent = 'No speech detected. Click mic to try again.';
+    } else if (event.error === 'not-allowed') {
+      status.textContent = 'Microphone access denied. Please allow mic access.';
+      status.className = 'error';
+    } else {
+      status.textContent = 'Error: ' + event.error + '. Click mic to try again.';
+    }
+  };
+
+  recognition.onend = function() {
+    listening = false;
+    btn.className = '';
+    if (status.textContent.indexOf('Sending') === -1 && status.textContent.indexOf('Got it') === -1) {
+      status.textContent = 'Click the mic and speak';
+    }
+  };
+}
+</script>
+</body>
+</html>
