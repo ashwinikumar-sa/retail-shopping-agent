@@ -1,0 +1,73 @@
+[
+  {
+    "customer_id": "CUST-001",
+    "first_name": "Priya",
+    "last_name": "Sharma",
+    "email": "priya.sharma@email.com",
+    "phone": "+1-555-0201",
+    "tier": "Gold",
+    "default_address": {
+      "street": "742 Evergreen Terrace",
+      "city": "Seattle",
+      "state": "WA",
+      "zip_code": "98101",
+      "country": "USA"
+    },
+    "payment_methods": [
+      {"id": "PAY-001", "type": "credit_card", "last_four": "4242", "brand": "Visa"},
+      {"id": "PAY-002", "type": "wallet", "provider": "StorePay", "balance": 45.00}
+    ],
+    "preferences": {
+      "favorite_brands": ["ThreadCraft", "BloomStyle"],
+      "preferred_sizes": {"tops": "M", "bottoms": "S", "dresses": "M"},
+      "style": "casual-chic"
+    }
+  },
+  {
+    "customer_id": "CUST-002",
+    "first_name": "James",
+    "last_name": "Chen",
+    "email": "james.chen@email.com",
+    "phone": "+1-555-0202",
+    "tier": "Standard",
+    "default_address": {
+      "street": "100 Main Street",
+      "city": "San Francisco",
+      "state": "CA",
+      "zip_code": "94102",
+      "country": "USA"
+    },
+    "payment_methods": [
+      {"id": "PAY-003", "type": "debit_card", "last_four": "8888", "brand": "Mastercard"}
+    ],
+    "preferences": {
+      "favorite_brands": ["UrbanEdge", "StreetVibe"],
+      "preferred_sizes": {"tops": "L", "bottoms": "L", "outerwear": "L"},
+      "style": "streetwear"
+    }
+  },
+  {
+    "customer_id": "CUST-003",
+    "first_name": "Maria",
+    "last_name": "Rodriguez",
+    "email": "maria.rodriguez@email.com",
+    "phone": "+1-555-0203",
+    "tier": "Premium",
+    "default_address": {
+      "street": "55 Park Avenue",
+      "city": "New York",
+      "state": "NY",
+      "zip_code": "10016",
+      "country": "USA"
+    },
+    "payment_methods": [
+      {"id": "PAY-004", "type": "credit_card", "last_four": "1234", "brand": "Amex"},
+      {"id": "PAY-005", "type": "credit_card", "last_four": "5678", "brand": "Visa"}
+    ],
+    "preferences": {
+      "favorite_brands": ["LuxCarry", "ThreadCraft", "BloomStyle"],
+      "preferred_sizes": {"tops": "S", "bottoms": "S", "dresses": "S"},
+      "style": "elegant"
+    }
+  }
+]
