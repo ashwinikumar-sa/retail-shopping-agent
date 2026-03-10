@@ -1,0 +1,455 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Retail Shopping Agent - DynamoDB, Lambda, API Gateway, Cognito'
+
+Parameters:
+  LambdaS3Bucket:
+    Type: String
+    Description: S3 bucket containing Lambda code
+    MinLength: 1
+  LambdaS3Key:
+    Type: String
+    Description: S3 key for Lambda zip
+    MinLength: 1
+
+Resources:
+
+  # --- DynamoDB Tables ---
+  ProductTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: product_id
+          AttributeType: S
+        - AttributeName: category
+          AttributeType: S
+        - AttributeName: brand
+          AttributeType: S
+      KeySchema:
+        - AttributeName: product_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: category-index
+          KeySchema:
+            - AttributeName: category
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: brand-index
+          KeySchema:
+            - AttributeName: brand
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      Tags:
+        - Key: Application
+          Value: RetailShopping
+
+  CustomerTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: customer_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customer_id
+          KeyType: HASH
+      Tags:
+        - Key: Application
+          Value: RetailShopping
+
+  CartTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: customer_id
+          AttributeType: S
+        - AttributeName: cart_item_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customer_id
+          KeyType: HASH
+        - AttributeName: cart_item_id
+          KeyType: RANGE
+      Tags:
+        - Key: Application
+          Value: RetailShopping
+
+  OrderTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: order_id
+          AttributeType: S
+        - AttributeName: customer_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: order_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: customer-index
+          KeySchema:
+            - AttributeName: customer_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      Tags:
+        - Key: Application
+          Value: RetailShopping
+
+  # --- SSM Parameters ---
+  ProductTableParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /app/retailshopping/dynamodb/product_table_name
+      Type: String
+      Value: !Ref ProductTable
+
+  CustomerTableParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /app/retailshopping/dynamodb/customer_table_name
+      Type: String
+      Value: !Ref CustomerTable
+
+  CartTableParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /app/retailshopping/dynamodb/cart_table_name
+      Type: String
+      Value: !Ref CartTable
+
+  OrderTableParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /app/retailshopping/dynamodb/order_table_name
+      Type: String
+      Value: !Ref OrderTable
+
+  # --- Cognito ---
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: RetailShoppingPool
+      AutoVerifiedAttributes:
+        - email
+
+  UserPoolResourceServer:
+    Type: AWS::Cognito::UserPoolResourceServer
+    Properties:
+      Identifier: retail-api
+      Name: RetailAPI
+      UserPoolId: !Ref UserPool
+      Scopes:
+        - ScopeName: access
+          ScopeDescription: API access
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: UserPoolResourceServer
+    Properties:
+      ClientName: RetailAPIClient
+      UserPoolId: !Ref UserPool
+      GenerateSecret: true
+      AllowedOAuthFlows:
+        - client_credentials
+      AllowedOAuthScopes:
+        - retail-api/access
+      AllowedOAuthFlowsUserPoolClient: true
+      ExplicitAuthFlows:
+        - ALLOW_REFRESH_TOKEN_AUTH
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub 'retail-shopping-${AWS::AccountId}'
+      UserPoolId: !Ref UserPool
+
+  # --- Lambda ---
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                  - dynamodb:BatchWriteItem
+                Resource:
+                  - !GetAtt ProductTable.Arn
+                  - !Sub '${ProductTable.Arn}/index/*'
+                  - !GetAtt CustomerTable.Arn
+                  - !GetAtt CartTable.Arn
+                  - !GetAtt OrderTable.Arn
+                  - !Sub '${OrderTable.Arn}/index/*'
+        - PolicyName: SSMAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/app/retailshopping/*'
+
+  RetailLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: RetailShoppingHandler
+      Runtime: python3.12
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt LambdaRole.Arn
+      Timeout: 30
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: !Ref LambdaS3Key
+      Environment:
+        Variables:
+          PRODUCT_TABLE: !Ref ProductTable
+          CUSTOMER_TABLE: !Ref CustomerTable
+          CART_TABLE: !Ref CartTable
+          ORDER_TABLE: !Ref OrderTable
+
+  LambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt RetailLambda.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RetailApi}/*'
+
+  # --- API Gateway ---
+  RetailApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: RetailShoppingAPI
+      Description: Retail Shopping API
+
+  SearchProductsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RetailApi
+      ParentId: !GetAtt RetailApi.RootResourceId
+      PathPart: search_products
+
+  SearchProductsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RetailApi
+      ResourceId: !Ref SearchProductsResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${RetailLambda.Arn}/invocations'
+
+  GetProductResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RetailApi
+      ParentId: !GetAtt RetailApi.RootResourceId
+      PathPart: get_product_details
+
+  GetProductMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RetailApi
+      ResourceId: !Ref GetProductResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${RetailLambda.Arn}/invocations'
+
+  GetCartResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RetailApi
+      ParentId: !GetAtt RetailApi.RootResourceId
+      PathPart: get_cart
+
+  GetCartMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RetailApi
+      ResourceId: !Ref GetCartResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${RetailLambda.Arn}/invocations'
+
+  AddToCartResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RetailApi
+      ParentId: !GetAtt RetailApi.RootResourceId
+      PathPart: add_to_cart
+
+  AddToCartMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RetailApi
+      ResourceId: !Ref AddToCartResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${RetailLambda.Arn}/invocations'
+
+  RemoveFromCartResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RetailApi
+      ParentId: !GetAtt RetailApi.RootResourceId
+      PathPart: remove_from_cart
+
+  RemoveFromCartMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RetailApi
+      ResourceId: !Ref RemoveFromCartResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${RetailLambda.Arn}/invocations'
+
+  CheckoutResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RetailApi
+      ParentId: !GetAtt RetailApi.RootResourceId
+      PathPart: checkout
+
+  CheckoutMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RetailApi
+      ResourceId: !Ref CheckoutResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${RetailLambda.Arn}/invocations'
+
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - SearchProductsMethod
+      - GetProductMethod
+      - GetCartMethod
+      - AddToCartMethod
+      - RemoveFromCartMethod
+      - CheckoutMethod
+    Properties:
+      RestApiId: !Ref RetailApi
+
+  ApiStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      RestApiId: !Ref RetailApi
+      DeploymentId: !Ref ApiDeployment
+      StageName: prod
+
+  # --- Gateway IAM Role ---
+  GatewayAgentCoreRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock-agentcore.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokeLambda
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt RetailLambda.Arn
+        - PolicyName: GatewaySecretsAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:DescribeSecret
+                Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:bedrock-agentcore-identity*'
+              - Effect: Allow
+                Action: bedrock-agentcore:*
+                Resource: '*'
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway endpoint URL
+    Value: !Sub 'https://${RetailApi}.execute-api.${AWS::Region}.amazonaws.com/prod'
+
+  IAMRoleArn:
+    Description: Gateway IAM Role ARN
+    Value: !GetAtt GatewayAgentCoreRole.Arn
+
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref UserPool
+
+  APIClientId:
+    Description: Cognito App Client ID
+    Value: !Ref UserPoolClient
+
+  oAuthScope:
+    Description: OAuth scope
+    Value: retail-api/access
+
+  oAuthDiscoveryURL:
+    Description: OpenID Connect discovery URL
+    Value: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}/.well-known/openid-configuration'
+
+  oAuthIssuer:
+    Description: OAuth issuer
+    Value: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}'
+
+  oAuthEndpoint:
+    Description: OAuth authorization endpoint
+    Value: !Sub 'https://retail-shopping-${AWS::AccountId}.auth.${AWS::Region}.amazoncognito.com/oauth2/authorize'
+
+  oAuthTokenURL:
+    Description: OAuth token endpoint
+    Value: !Sub 'https://retail-shopping-${AWS::AccountId}.auth.${AWS::Region}.amazoncognito.com/oauth2/token'
+
+  ProductTableName:
+    Value: !Ref ProductTable
+  CustomerTableName:
+    Value: !Ref CustomerTable
+  CartTableName:
+    Value: !Ref CartTable
+  OrderTableName:
+    Value: !Ref OrderTable
