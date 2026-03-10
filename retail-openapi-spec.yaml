@@ -1,0 +1,217 @@
+openapi: 3.0.0
+info:
+  title: retail-api
+  description: API for browsing products, managing cart, and checkout in a multi-brand clothing store
+  version: 1.0.0
+servers:
+  - url: https://a321idmawj.execute-api.us-east-1.amazonaws.com/prod
+
+paths:
+  /search_products:
+    get:
+      summary: Search products by category, brand, size, or keyword
+      description: Returns a list of products matching the search criteria
+      operationId: searchProducts
+      parameters:
+        - name: query
+          in: query
+          description: Search keyword (e.g., "blue jacket", "summer dress")
+          required: false
+          schema:
+            type: string
+        - name: category
+          in: query
+          description: Product category (e.g., tops, bottoms, dresses, outerwear, accessories)
+          required: false
+          schema:
+            type: string
+        - name: brand
+          in: query
+          description: Brand name filter
+          required: false
+          schema:
+            type: string
+        - name: size
+          in: query
+          description: Size filter (XS, S, M, L, XL, XXL)
+          required: false
+          schema:
+            type: string
+        - name: min_price
+          in: query
+          description: Minimum price filter
+          required: false
+          schema:
+            type: number
+        - name: max_price
+          in: query
+          description: Maximum price filter
+          required: false
+          schema:
+            type: number
+        - name: gender
+          in: query
+          description: Gender filter (men, women, unisex)
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful operation
+        '500':
+          description: Internal server error
+
+  /get_product_details:
+    get:
+      summary: Get detailed information about a specific product
+      description: Returns full product details including available sizes, colors, and stock
+      operationId: getProductDetails
+      parameters:
+        - name: product_id
+          in: query
+          description: Product ID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful operation
+        '404':
+          description: Product not found
+        '500':
+          description: Internal server error
+
+  /get_cart:
+    get:
+      summary: Get current cart contents for a customer
+      description: Returns all items in the customer's cart with totals
+      operationId: getCart
+      parameters:
+        - name: customer_id
+          in: query
+          description: Customer ID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful operation
+        '500':
+          description: Internal server error
+
+  /add_to_cart:
+    post:
+      summary: Add a product to the customer's cart
+      description: Adds a product with specified size and quantity to the cart
+      operationId: addToCart
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/addToCartRequest'
+      responses:
+        '200':
+          description: Item added successfully
+        '400':
+          description: Bad request (out of stock, invalid product)
+        '500':
+          description: Internal server error
+
+  /remove_from_cart:
+    post:
+      summary: Remove an item from the customer's cart
+      description: Removes a specific item from the cart
+      operationId: removeFromCart
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/removeFromCartRequest'
+      responses:
+        '200':
+          description: Item removed successfully
+        '400':
+          description: Bad request
+        '500':
+          description: Internal server error
+
+  /checkout:
+    post:
+      summary: Process checkout for the customer's cart
+      description: Validates cart, calculates totals with tax, and creates an order
+      operationId: checkout
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/checkoutRequest'
+      responses:
+        '200':
+          description: Order placed successfully
+        '400':
+          description: Bad request (empty cart, payment issue)
+        '500':
+          description: Internal server error
+
+components:
+  schemas:
+    addToCartRequest:
+      type: object
+      required:
+        - customer_id
+        - product_id
+        - size
+      properties:
+        customer_id:
+          type: string
+          description: Customer ID
+          example: "CUST-001"
+        product_id:
+          type: string
+          description: Product ID to add
+          example: "PROD-001"
+        size:
+          type: string
+          description: Selected size (XS, S, M, L, XL, XXL)
+          example: "M"
+        quantity:
+          type: integer
+          description: Quantity to add (defaults to 1)
+          example: 1
+
+    removeFromCartRequest:
+      type: object
+      required:
+        - customer_id
+        - cart_item_id
+      properties:
+        customer_id:
+          type: string
+          description: Customer ID
+          example: "CUST-001"
+        cart_item_id:
+          type: string
+          description: Cart item ID to remove
+          example: "CART-ITEM-001"
+
+    checkoutRequest:
+      type: object
+      required:
+        - customer_id
+        - payment_method
+      properties:
+        customer_id:
+          type: string
+          description: Customer ID
+          example: "CUST-001"
+        payment_method:
+          type: string
+          description: Payment method (credit_card, debit_card, upi, wallet)
+          example: "credit_card"
+        shipping_address_id:
+          type: string
+          description: Shipping address ID (uses default if not provided)
+          example: "ADDR-001"
